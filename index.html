@@ -154,7 +154,7 @@
     <div id="error-msg">🔒 Place d'abord la règle !</div>
 
     <div class="gesture-hint">
-        📱 1 doigt : Déplacer | ✌️ 2 doigts : Tourner
+        📱 1 doigt : Déplacer | ✌️ 2 doigts : Tourner | 🖱️ Molette : Tourner
     </div>
 
     <canvas id="drawingCanvas"></canvas>
@@ -320,6 +320,25 @@ class Game {
         window.addEventListener('pointermove', (e) => this.onPointerMove(e));
         window.addEventListener('pointerup', (e) => this.onPointerUp(e));
         window.addEventListener('pointercancel', (e) => this.onPointerUp(e));
+        
+        // Ajout du support de la molette pour la rotation sur ordinateur
+        this.container.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+    }
+
+    // Gestion de la rotation par molette
+    onWheel(e) {
+        if (this.rulerState.isLocked) return;
+        
+        // Empêche le scroll de la page si elle est scrollable
+        e.preventDefault();
+        
+        // Rotation : signe de deltaY (haut/bas)
+        // On tourne de 3 degrés par cran
+        const direction = Math.sign(e.deltaY);
+        this.rulerState.rotation += direction * 3;
+        
+        this.updateRulerUI();
+        this.checkLock();
     }
 
     onPointerDown(e) {
