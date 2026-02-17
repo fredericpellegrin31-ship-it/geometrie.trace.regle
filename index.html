@@ -74,7 +74,7 @@
             top: 0;
             left: 0;
             z-index: 10;
-            pointer-events: none; /* Le dessin est géré par le container pour ne pas bloquer la règle */
+            pointer-events: none; 
         }
 
         .ui-panel {
@@ -100,6 +100,7 @@
             font-weight: bold;
             border: none;
             margin-top: 5px;
+            cursor: pointer;
         }
 
         .gesture-hint {
@@ -152,9 +153,7 @@ class Game {
         this.startPoint = null;
         this.currentLineEnd = null;
 
-        // Gestion du tactile multi-points
         this.activePointers = new Map();
-        this.initialDist = 0;
         this.initialAngle = 0;
         this.initialRulerRotation = 0;
 
@@ -204,25 +203,21 @@ class Game {
         const h = window.innerHeight;
 
         if (lvl === 1) {
-            this.setUI("Niveau 1", "Place la règle sous les points noirs.");
+            this.setUI("Niveau 1", "Place le bord haut de la règle sous les points.");
             this.points.push(
-                { x: w * 0.2, y: h * 0.4, color: 'black' },
-                { x: w * 0.8, y: h * 0.4, color: 'black' }
+                { x: w * 0.2, y: h * 0.4, color: 'black', id: 1 },
+                { x: w * 0.8, y: h * 0.4, color: 'black', id: 2 }
             );
         } else if (lvl === 2) {
             this.setUI("Niveau 2", "Relie les paires de même couleur.");
-            // Rouge
-            this.points.push({ x: w * 0.15, y: h * 0.25, color: '#EF4444', pairId: 1 });
-            this.points.push({ x: w * 0.5, y: h * 0.25, color: '#EF4444', pairId: 1 });
-            // Bleu
-            this.points.push({ x: w * 0.75, y: h * 0.3, color: '#3B82F6', pairId: 2 });
-            this.points.push({ x: w * 0.75, y: h * 0.7, color: '#3B82F6', pairId: 2 });
-            // Vert
-            this.points.push({ x: w * 0.2, y: h * 0.6, color: '#10B981', pairId: 3 });
-            this.points.push({ x: w * 0.5, y: h * 0.8, color: '#10B981', pairId: 3 });
-            // Orange
-            this.points.push({ x: w * 0.1, y: h * 0.4, color: '#F59E0B', pairId: 4 });
-            this.points.push({ x: w * 0.3, y: h * 0.2, color: '#F59E0B', pairId: 4 });
+            this.points.push({ x: w * 0.15, y: h * 0.25, color: '#EF4444', id: 'r1' });
+            this.points.push({ x: w * 0.5, y: h * 0.25, color: '#EF4444', id: 'r2' });
+            this.points.push({ x: w * 0.75, y: h * 0.3, color: '#3B82F6', id: 'b1' });
+            this.points.push({ x: w * 0.75, y: h * 0.7, color: '#3B82F6', id: 'b2' });
+            this.points.push({ x: w * 0.2, y: h * 0.6, color: '#10B981', id: 'v1' });
+            this.points.push({ x: w * 0.5, y: h * 0.8, color: '#10B981', id: 'v2' });
+            this.points.push({ x: w * 0.1, y: h * 0.4, color: '#F59E0B', id: 'o1' });
+            this.points.push({ x: w * 0.3, y: h * 0.2, color: '#F59E0B', id: 'o2' });
         } else {
             this.setUI("Félicitations !", "Tu as terminé tous les niveaux.");
         }
@@ -235,7 +230,6 @@ class Game {
     }
 
     setupEventListeners() {
-        // Interaction globale pour gérer règle ET tracé
         this.container.addEventListener('pointerdown', (e) => this.onPointerDown(e));
         window.addEventListener('pointermove', (e) => this.onPointerMove(e));
         window.addEventListener('pointerup', (e) => this.onPointerUp(e));
@@ -245,7 +239,6 @@ class Game {
     onPointerDown(e) {
         this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-        // Vérifier si on commence à tracer (sur un point)
         const pt = this.getPointAt(e.clientX, e.clientY);
         if (pt) {
             this.isDrawing = true;
@@ -254,7 +247,6 @@ class Game {
             return;
         }
 
-        // Si 2 points, on prépare la rotation
         if (this.activePointers.size === 2) {
             const pts = Array.from(this.activePointers.values());
             this.initialAngle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
@@ -273,11 +265,9 @@ class Game {
             this.currentLineEnd = this.snapToRuler(curr);
         } else if (!this.rulerState.isLocked) {
             if (this.activePointers.size === 1) {
-                // Déplacement simple
                 this.rulerState.x += curr.x - prev.x;
                 this.rulerState.y += curr.y - prev.y;
             } else if (this.activePointers.size === 2) {
-                // Rotation
                 const pts = Array.from(this.activePointers.values());
                 const currentAngle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
                 const diff = currentAngle - this.initialAngle;
@@ -307,16 +297,28 @@ class Game {
         this.rulerEl.style.transform = `translate(${this.rulerState.x}px, ${this.rulerState.y}px) rotate(${this.rulerState.rotation}deg)`;
     }
 
+    // Vérifie si une paire de points est déjà reliée
+    isAlreadyLinked(p1, p2) {
+        return this.lines.some(l => 
+            (l.p1.id === p1.id && l.p2.id === p2.id) || 
+            (l.p1.id === p2.id && l.p2.id === p1.id)
+        );
+    }
+
     checkLock() {
         for (let i = 0; i < this.points.length; i++) {
             for (let j = i + 1; j < this.points.length; j++) {
                 const p1 = this.points[i];
                 const p2 = this.points[j];
+                
+                // NOUVEAU : Si déjà reliés, on ignore cette paire pour le verrouillage
+                if (this.isAlreadyLinked(p1, p2)) continue;
+
                 if (p1.color !== p2.color && this.level !== 1) continue;
 
                 const targetAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
-                const distP1 = this.getDistToRulerEdge(p1);
-                const distP2 = this.getDistToRulerEdge(p2);
+                const distP1 = this.getDistToRulerTopEdge(p1);
+                const distP2 = this.getDistToRulerTopEdge(p2);
 
                 let angleDiff = Math.abs((this.rulerState.rotation % 180) - (targetAngle % 180));
                 if (angleDiff > 90) angleDiff = Math.abs(angleDiff - 180);
@@ -329,28 +331,36 @@ class Game {
         }
     }
 
-    getDistToRulerEdge(p) {
+    getDistToRulerTopEdge(p) {
         const rad = -this.rulerState.rotation * Math.PI / 180;
         const cx = this.rulerState.x + this.rulerState.width / 2;
         const cy = this.rulerState.y + this.rulerState.height / 2;
         const dx = p.x - cx;
         const dy = p.y - cy;
         const localY = dx * Math.sin(rad) + dy * Math.cos(rad);
-        return Math.min(Math.abs(localY - (-this.rulerState.height / 2)), Math.abs(localY - this.rulerState.height / 2));
+        return Math.abs(localY - (-this.rulerState.height / 2));
     }
 
     lock(p1, p2, angle) {
         this.rulerState.isLocked = true;
         this.rulerEl.classList.add('locked');
         this.rulerState.rotation = angle;
+        
         const midX = (p1.x + p2.x) / 2;
         const midY = (p1.y + p2.y) / 2;
+        
         const rad = angle * Math.PI / 180;
-        // On aligne le haut de la règle sur les points
-        this.rulerState.x = midX - (this.rulerState.width / 2);
-        this.rulerState.y = midY - (this.rulerState.height / 2);
+        const offsetX = Math.sin(rad) * (this.rulerState.height / 2);
+        const offsetY = -Math.cos(rad) * (this.rulerState.height / 2);
+
+        const targetCenterX = midX - offsetX;
+        const targetCenterY = midY - offsetY;
+
+        this.rulerState.x = targetCenterX - (this.rulerState.width / 2);
+        this.rulerState.y = targetCenterY - (this.rulerState.height / 2);
+        
         this.updateRulerUI();
-        this.setUI("Règle fixée !", "Trace le trait maintenant.");
+        this.setUI("Règle fixée !", "Trace le trait le long du bord haut.");
     }
 
     snapToRuler(pos) {
@@ -363,9 +373,9 @@ class Game {
         const localX = dx * Math.cos(rad) - dy * Math.sin(rad);
         const localY = dx * Math.sin(rad) + dy * Math.cos(rad);
 
-        const halfH = this.rulerState.height / 2;
-        if (Math.abs(localY - (-halfH)) < 30) {
-            const snappedY = -halfH;
+        const topEdge = -this.rulerState.height / 2;
+        if (Math.abs(localY - topEdge) < 30) {
+            const snappedY = topEdge;
             const fx = localX * Math.cos(-rad) - snappedY * Math.sin(-rad) + cx;
             const fy = localX * Math.sin(-rad) + snappedY * Math.cos(-rad) + cy;
             return { x: fx, y: fy };
@@ -381,6 +391,7 @@ class Game {
         const goal = this.level === 1 ? 1 : 4;
         if (this.lines.length >= goal) {
             document.getElementById('nextLevelBtn').classList.remove('hidden');
+            this.setUI("Bravo !", "Tous les points sont reliés.");
         }
     }
 
@@ -391,7 +402,6 @@ class Game {
     draw() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-        // Dessiner les points
         this.points.forEach(p => {
             this.ctx.beginPath();
             this.ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
@@ -401,7 +411,6 @@ class Game {
             this.ctx.stroke();
         });
 
-        // Dessiner les lignes validées
         this.lines.forEach(l => {
             this.ctx.beginPath();
             this.ctx.moveTo(l.p1.x, l.p1.y);
@@ -411,7 +420,6 @@ class Game {
             this.ctx.stroke();
         });
 
-        // Dessiner le tracé en cours
         if (this.isDrawing && this.startPoint) {
             this.ctx.beginPath();
             this.ctx.moveTo(this.startPoint.x, this.startPoint.y);
