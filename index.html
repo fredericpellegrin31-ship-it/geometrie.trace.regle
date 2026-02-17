@@ -31,9 +31,9 @@
         /* La Règle */
         #ruler {
             position: absolute;
-            width: 700px; /* MODIFICATION : Règle plus longue (était 400px) */
+            width: 700px;
             height: 90px;
-            background-color: #ffcc66; /* Couleur de l'image fournie */
+            background-color: #ffcc66;
             border: 2px solid #333;
             border-radius: 8px;
             box-shadow: 2px 5px 15px rgba(0,0,0,0.2);
@@ -41,11 +41,18 @@
             cursor: grab;
             z-index: 10;
             display: flex;
-            align-items: flex-end; /* Graduations en bas ou haut selon besoin */
+            align-items: flex-end;
             touch-action: none;
+            transition: outline 0.3s ease;
         }
 
-        #ruler:active {
+        #ruler.locked {
+            cursor: default;
+            outline: 4px solid #10B981; /* Vert quand verrouillé */
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+        }
+
+        #ruler:active:not(.locked) {
             cursor: grabbing;
             box-shadow: 4px 8px 20px rgba(0,0,0,0.3);
         }
@@ -71,8 +78,8 @@
             position: absolute;
             top: 0;
             left: 0;
-            z-index: 5; /* Sous la règle */
-            pointer-events: auto; /* Doit recevoir les clics si on ne touche pas la règle */
+            z-index: 5;
+            pointer-events: auto;
         }
 
         /* UI */
@@ -107,7 +114,6 @@
         .btn:active { transform: scale(0.95); }
         .hidden { display: none !important; }
 
-        /* Instruction overlay for gestures */
         .gesture-hint {
             position: absolute;
             bottom: 20px;
@@ -121,7 +127,6 @@
             z-index: 50;
         }
 
-        /* Animations */
         @keyframes pop {
             0% { transform: scale(0); opacity: 0; }
             80% { transform: scale(1.2); opacity: 1; }
@@ -135,23 +140,19 @@
 <body>
 
 <div id="game-container">
-    <!-- UI -->
     <div class="ui-panel" id="uiPanel">
         <h1 id="instructionText" class="text-xl font-bold text-gray-800">Bienvenue !</h1>
         <p id="subText" class="text-sm text-gray-600">Déplace la règle pour relier les points.</p>
         <button id="nextLevelBtn" class="btn hidden" onclick="game.nextLevel()">Niveau Suivant !</button>
     </div>
 
-    <!-- Instructions Tactiles -->
     <div class="gesture-hint">
         🖐 1 doigt : Déplacer la règle / Dessiner<br>
         ✌️ 2 doigts : Faire pivoter la règle
     </div>
 
-    <!-- Canvas pour les points et les traits -->
     <canvas id="drawingCanvas"></canvas>
 
-    <!-- La Règle Interactive -->
     <div id="ruler">
         <div class="graduation-container" id="rulerGraduations">
             <!-- Rempli par JS -->
@@ -164,11 +165,12 @@
  * Logique du Jeu "Le Tracé"
  */
 
-// Configuration
 const CONFIG = {
-    snapDistance: 30, // Distance en pixels pour "aimanter" le crayon à la règle
+    snapDistance: 30, // Pour coller le crayon à la règle
+    lockDistance: 25, // Distance max pour valider la position de la règle
+    lockAngle: 3,     // Angle max (degrés) pour valider la position de la règle
     pointRadius: 10,
-    colors: ['#EF4444', '#3B82F6', '#10B981', '#F59E0B'] // Rouge, Bleu, Vert, Jaune
+    colors: ['#EF4444', '#3B82F6', '#10B981', '#F59E0B'] // Rouge, Bleu, Vert, Orange
 };
 
 class Game {
@@ -177,27 +179,20 @@ class Game {
         this.ctx = this.canvas.getContext('2d');
         this.rulerEl = document.getElementById('ruler');
         
-        // État de la règle
-        // MODIFICATION : Width passée à 700
-        this.rulerState = { x: 50, y: 300, rotation: 0, width: 700, height: 90 };
+        this.rulerState = { x: 50, y: 300, rotation: 0, width: 700, height: 90, isLocked: false };
         
-        // État du jeu
         this.level = 0;
         this.points = [];
-        this.lines = []; // Traits déjà validés
-        this.currentLine = null; // Trait en cours de tracé
+        this.lines = [];
+        this.currentLine = null;
         this.isDrawing = false;
-        
-        // Gestion du tracé
         this.startPoint = null;
 
-        // Init
         this.resize();
         window.addEventListener('resize', () => this.resize());
         this.initRulerVisuals();
         this.initInteractions();
         
-        // Démarrer le niveau 1
         this.loadLevel(1);
         this.loop();
     }
@@ -205,13 +200,11 @@ class Game {
     resize() {
         this.canvas.width = window.innerWidth;
         this.canvas.height = window.innerHeight;
-        this.draw(); // Redessiner immédiatement
+        this.draw();
     }
 
-    // Création des graduations pour ressembler à l'image fournie
     initRulerVisuals() {
         const container = document.getElementById('rulerGraduations');
-        // MODIFICATION : 70 ticks au lieu de 40 pour garder la même échelle avec une règle plus longue
         const totalTicks = 70; 
         for (let i = 0; i <= totalTicks; i++) {
             const tick = document.createElement('div');
@@ -228,13 +221,13 @@ class Game {
         this.updateRulerTransform();
     }
 
-    /* --- Gestion des Niveaux --- */
-    
     loadLevel(lvl) {
         this.level = lvl;
         this.points = [];
         this.lines = [];
         this.isDrawing = false;
+        this.rulerState.isLocked = false;
+        this.rulerEl.classList.remove('locked');
         document.getElementById('nextLevelBtn').classList.add('hidden');
         
         const w = window.innerWidth;
@@ -243,30 +236,36 @@ class Game {
         const cy = h / 2;
 
         if (lvl === 1) {
-            this.setInstruction("Niveau 1 : Les bases", "Place la règle sous les deux points noirs, puis trace le trait.");
+            this.setInstruction("Niveau 1 : Les bases", "Place la règle sur les points noirs. Quand elle devient verte, elle est fixée !");
             this.points.push(
-                { x: cx - 200, y: cy, color: 'black', id: 1, connected: false },
-                { x: cx + 200, y: cy, color: 'black', id: 1, connected: false }
+                { x: cx - 200, y: cy, color: 'black', id: 1 },
+                { x: cx + 200, y: cy, color: 'black', id: 1 }
             );
         } 
         else if (lvl === 2) {
-            this.setInstruction("Niveau 2 : Les couleurs", "Relie les points de la même couleur.");
-            // Paire Rouge
-            this.points.push({ x: cx - 250, y: cy - 100, color: CONFIG.colors[0], id: 'red', connected: false });
-            this.points.push({ x: cx - 50, y: cy + 100, color: CONFIG.colors[0], id: 'red', connected: false });
-            // Paire Bleue
-            this.points.push({ x: cx + 50, y: cy - 150, color: CONFIG.colors[1], id: 'blue', connected: false });
-            this.points.push({ x: cx + 250, y: cy + 50, color: CONFIG.colors[1], id: 'blue', connected: false });
+            this.setInstruction("Niveau 2 : Multi-couleurs", "Relie chaque paire de même couleur. La règle se fixe pour chaque paire.");
+            // Rouge (horizontal haut)
+            this.points.push({ x: cx - 300, y: cy - 200, color: CONFIG.colors[0], id: 'red' });
+            this.points.push({ x: cx + 50, y: cy - 200, color: CONFIG.colors[0], id: 'red' });
+            // Bleu (vertical droite)
+            this.points.push({ x: cx + 300, y: cy - 100, color: CONFIG.colors[1], id: 'blue' });
+            this.points.push({ x: cx + 300, y: cy + 200, color: CONFIG.colors[1], id: 'blue' });
+            // Vert (diagonale gauche)
+            this.points.push({ x: cx - 300, y: cy + 50, color: CONFIG.colors[2], id: 'green' });
+            this.points.push({ x: cx - 100, y: cy + 250, color: CONFIG.colors[2], id: 'green' });
+            // Orange (diagonale centre)
+            this.points.push({ x: cx - 150, y: cy - 50, color: CONFIG.colors[3], id: 'orange' });
+            this.points.push({ x: cx + 150, y: cy + 100, color: CONFIG.colors[3], id: 'orange' });
         }
         else if (lvl === 3) {
-            this.setInstruction("Niveau 3 : Le Triangle", "Relie les 3 points pour former un triangle.");
-            this.points.push({ x: cx, y: cy - 200, color: 'black', id: 't1', connected: false });
-            this.points.push({ x: cx - 200, y: cy + 150, color: 'black', id: 't1', connected: false });
-            this.points.push({ x: cx + 200, y: cy + 150, color: 'black', id: 't1', connected: false });
+            this.setInstruction("Niveau 3 : Le Triangle", "Relie les 3 points. La règle t'aidera pour chaque côté.");
+            this.points.push({ x: cx, y: cy - 200, color: 'black', id: 't1' });
+            this.points.push({ x: cx - 200, y: cy + 150, color: 'black', id: 't2' });
+            this.points.push({ x: cx + 200, y: cy + 150, color: 'black', id: 't3' });
         }
         else {
-            this.setInstruction("Bravo !", "Tu as terminé l'entraînement !");
-            this.points = []; // Mode libre
+            this.setInstruction("Bravo !", "Tu es un expert du tracé !");
+            this.points = [];
         }
         
         this.draw();
@@ -281,101 +280,129 @@ class Game {
         this.loadLevel(this.level + 1);
     }
 
-    checkWinCondition() {
-        // Logique de victoire
-        let allConnected = false;
-        
-        if (this.level === 1) {
-            allConnected = this.lines.length >= 1;
-        } else if (this.level === 2) {
-            // Doit avoir 2 lignes distinctes valides
-            allConnected = this.lines.length >= 2;
-        } else if (this.level === 3) {
-            allConnected = this.lines.length >= 3;
-        }
+    /**
+     * Vérifie si la règle est alignée avec une paire de points
+     */
+    checkRulerLock() {
+        if (this.rulerState.isLocked) return;
 
-        if (allConnected) {
-            const btn = document.getElementById('nextLevelBtn');
-            btn.innerText = "Bravo ! Continuer ➔";
-            btn.classList.remove('hidden');
-            
-            // Confetti effect (simple visual)
-            this.setInstruction("Excellent !", "Tu as réussi le tracé.");
+        // On cherche une paire de points de même couleur non reliés
+        // Pour simplifier, on vérifie toutes les paires possibles
+        for (let i = 0; i < this.points.length; i++) {
+            for (let j = i + 1; j < this.points.length; j++) {
+                const p1 = this.points[i];
+                const p2 = this.points[j];
+                
+                // Conditions : même couleur et non encore reliés par une ligne
+                const alreadyLinked = this.lines.find(l => (l.p1 === p1 && l.p2 === p2) || (l.p1 === p2 && l.p2 === p1));
+                if (p1.color === p2.color && !alreadyLinked) {
+                    
+                    // Calcul de l'angle et de la position idéale
+                    const targetAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x) * (180 / Math.PI);
+                    const distP1 = this.getDistanceFromRulerEdge(p1);
+                    const distP2 = this.getDistanceFromRulerEdge(p2);
+
+                    // Normalisation de l'angle de la règle pour comparaison
+                    let diffAngle = Math.abs((this.rulerState.rotation % 180) - (targetAngle % 180));
+                    if (diffAngle > 90) diffAngle = Math.abs(diffAngle - 180);
+
+                    if (diffAngle < CONFIG.lockAngle && distP1 < CONFIG.lockDistance && distP2 < CONFIG.lockDistance) {
+                        this.lockRuler(p1, p2, targetAngle);
+                        return;
+                    }
+                }
+            }
         }
     }
 
-    /* --- Intéractions Tactiles (Le Cœur du Système) --- */
+    getDistanceFromRulerEdge(point) {
+        const rad = -this.rulerState.rotation * (Math.PI / 180);
+        const rcx = this.rulerState.x + this.rulerState.width / 2;
+        const rcy = this.rulerState.y + this.rulerState.height / 2;
+        const dx = point.x - rcx;
+        const dy = point.y - rcy;
+        const localY = dx * Math.sin(rad) + dy * Math.cos(rad);
+        const halfH = this.rulerState.height / 2;
+        return Math.min(Math.abs(localY - (-halfH)), Math.abs(localY - halfH));
+    }
+
+    lockRuler(p1, p2, angle) {
+        this.rulerState.isLocked = true;
+        this.rulerEl.classList.add('locked');
+        
+        // Petit ajustement visuel automatique pour un alignement parfait
+        this.rulerState.rotation = angle;
+        // On centre la règle sur le segment
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+        
+        // Calcul pour que le bord de la règle touche les points
+        const rad = angle * (Math.PI / 180);
+        const offsetLocalY = this.rulerState.height / 2;
+        this.rulerState.x = midX - (this.rulerState.width / 2);
+        this.rulerState.y = midY - offsetLocalY;
+
+        this.updateRulerTransform();
+        this.setInstruction("Règle fixée !", "Maintenant, trace le trait entre les points.");
+    }
+
+    checkWinCondition() {
+        let win = false;
+        if (this.level === 1) win = this.lines.length >= 1;
+        else if (this.level === 2) win = this.lines.length >= 4;
+        else if (this.level === 3) win = this.lines.length >= 3;
+
+        if (win) {
+            const btn = document.getElementById('nextLevelBtn');
+            btn.innerText = "Niveau Suivant ➔";
+            btn.classList.remove('hidden');
+            this.setInstruction("Bravo !", "Tu as réussi ce niveau.");
+        }
+    }
 
     initInteractions() {
-        // --- 1. Gestion de la Règle (DOM Element) ---
         let activeTouches = new Map();
-        let initialDist = 0;
         let initialAngle = 0;
         let initialRotation = 0;
         let isDraggingRuler = false;
 
         const handleRulerStart = (e) => {
-            // Si on dessine déjà, on ignore la règle
-            if (this.isDrawing) return; 
-
-            e.preventDefault(); // Empêcher le scroll
-            if (e.pointerType === 'mouse' && e.button !== 0) return;
-
-            // Ajouter le pointeur à la map
+            if (this.isDrawing || this.rulerState.isLocked) return; 
+            e.preventDefault();
             activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-            
-            // On capture le pointeur pour continuer à tracker même si on sort de la div
             this.rulerEl.setPointerCapture(e.pointerId);
             isDraggingRuler = true;
 
             if (activeTouches.size === 2) {
-                // Initialisation pour rotation (2 doigts)
                 const iterator = activeTouches.values();
                 const p1 = iterator.next().value;
                 const p2 = iterator.next().value;
-                
-                initialDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
                 initialAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
                 initialRotation = this.rulerState.rotation;
             }
         };
 
         const handleRulerMove = (e) => {
-            if (!activeTouches.has(e.pointerId)) return;
-            
+            if (!activeTouches.has(e.pointerId) || this.rulerState.isLocked) return;
             const prev = activeTouches.get(e.pointerId);
             const curr = { x: e.clientX, y: e.clientY };
             activeTouches.set(e.pointerId, curr);
 
             if (activeTouches.size === 1) {
-                // Translation simple
-                const dx = curr.x - prev.x;
-                const dy = curr.y - prev.y;
-                this.rulerState.x += dx;
-                this.rulerState.y += dy;
+                this.rulerState.x += curr.x - prev.x;
+                this.rulerState.y += curr.y - prev.y;
             } 
             else if (activeTouches.size === 2) {
-                // Rotation + Translation
-                // Note: La translation avec 2 doigts est calculée par la moyenne du mouvement, 
-                // mais ici on va simplifier : si 2 doigts, on priorise la rotation.
-                
                 const points = Array.from(activeTouches.values());
                 const p1 = points[0];
                 const p2 = points[1];
-
                 const currentAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
                 const angleDiff = currentAngle - initialAngle;
-                
-                // Conversion radian -> degré
                 this.rulerState.rotation = initialRotation + (angleDiff * 180 / Math.PI);
-                
-                // Optionnel : Déplacer le centre de la règle au centre des deux doigts
-                const centerX = (p1.x + p2.x) / 2;
-                const centerY = (p1.y + p2.y) / 2;
-                // Ce calcul est complexe car il faut compenser l'offset, on reste sur la rotation simple pour l'instant
             }
 
             this.updateRulerTransform();
+            this.checkRulerLock();
         };
 
         const handleRulerEnd = (e) => {
@@ -383,26 +410,15 @@ class Game {
             if (activeTouches.size === 0) isDraggingRuler = false;
         };
 
-        // Support souris molette pour rotation
-        this.rulerEl.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            this.rulerState.rotation += e.deltaY * 0.1;
-            this.updateRulerTransform();
-        });
-
         this.rulerEl.addEventListener('pointerdown', handleRulerStart);
         this.rulerEl.addEventListener('pointermove', handleRulerMove);
         this.rulerEl.addEventListener('pointerup', handleRulerEnd);
         this.rulerEl.addEventListener('pointercancel', handleRulerEnd);
 
-        // --- 2. Gestion du Dessin (Canvas) ---
-        // On dessine si on touche le canvas (pas la règle)
-        
+        // Dessin
         const handleDrawStart = (e) => {
-            if (isDraggingRuler) return; // Priorité à la règle
+            if (isDraggingRuler) return;
             const pos = this.getCanvasPos(e);
-            
-            // Vérifier si on touche un point de départ
             const clickedPoint = this.getPointAt(pos.x, pos.y);
             
             if (clickedPoint) {
@@ -415,43 +431,28 @@ class Game {
         const handleDrawMove = (e) => {
             if (!this.isDrawing) return;
             const pos = this.getCanvasPos(e);
-            
-            // LOGIQUE D'AIMANTATION À LA RÈGLE
-            // On projette le point sur le bord de la règle
-            const snappedPos = this.snapToRuler(pos);
-            
-            this.currentLine.end = snappedPos;
+            this.currentLine.end = this.snapToRuler(pos);
         };
 
         const handleDrawEnd = (e) => {
             if (!this.isDrawing) return;
             this.isDrawing = false;
             
-            // Valider le trait
             const endPos = this.currentLine.end;
             const endPoint = this.getPointAt(endPos.x, endPos.y);
 
-            // Succès si : 
-            // 1. On finit sur un point
-            // 2. Ce n'est pas le point de départ
-            // 3. Les couleurs correspondent (Niveau 2)
             if (endPoint && endPoint !== this.startPoint) {
-                
-                let validColor = true;
-                if (this.level === 2 && this.startPoint.color !== endPoint.color) validColor = false;
-
-                if (validColor) {
-                    // Vérifier si la ligne suit à peu près la règle (optionnel, pour l'éducation c'est mieux)
-                    // Ici on valide simplement la connexion
+                if (this.startPoint.color === endPoint.color || this.level === 3 || this.level === 1) {
                     this.lines.push({
                         p1: this.startPoint,
                         p2: endPoint,
                         color: this.startPoint.color
                     });
+                    this.rulerState.isLocked = false;
+                    this.rulerEl.classList.remove('locked');
                     this.checkWinCondition();
                 }
             }
-            
             this.currentLine = null;
             this.startPoint = null;
         };
@@ -466,98 +467,63 @@ class Game {
     }
 
     getCanvasPos(e) {
-        // Position relative au viewport
         return { x: e.clientX, y: e.clientY };
     }
 
     getPointAt(x, y) {
-        return this.points.find(p => {
-            const dist = Math.hypot(p.x - x, p.y - y);
-            return dist < 30; // Zone tactile un peu plus grande que le visuel
-        });
+        return this.points.find(p => Math.hypot(p.x - x, p.y - y) < 40);
     }
 
-    // Fonction mathématique pour coller le trait à la règle
     snapToRuler(pos) {
-        // Convertir la position en coordonnées locales de la règle
         const rad = -this.rulerState.rotation * (Math.PI / 180);
-        // Centre de la règle
-        const cx = this.rulerState.x + this.rulerState.width/2; 
-        // Note: l'origine CSS du transform est center/center par défaut sur la div si on ne change rien,
-        // mais ici j'utilise translate + rotate. 
-        // En CSS 'translate' bouge l'élément. Le centre visuel est x + w/2, y + h/2 ? 
-        // Non, avec position absolute, x/y est le top-left avant rotation.
-        // Centre de rotation :
         const rcx = this.rulerState.x + this.rulerState.width / 2;
         const rcy = this.rulerState.y + this.rulerState.height / 2;
 
-        // Vecteur du centre vers le point
         const dx = pos.x - rcx;
         const dy = pos.y - rcy;
 
-        // Rotation inverse pour aligner avec l'axe X local
         const localX = dx * Math.cos(rad) - dy * Math.sin(rad);
         const localY = dx * Math.sin(rad) + dy * Math.cos(rad);
 
-        // Limites de la règle en local
         const halfH = this.rulerState.height / 2;
-        
-        // Est-on proche du bord haut ou bas ?
-        // Bord haut local = -halfH, Bord bas = +halfH
         const distTop = Math.abs(localY - (-halfH));
         const distBottom = Math.abs(localY - halfH);
 
         let snappedLocalY = localY;
+        if (distTop < CONFIG.snapDistance) snappedLocalY = -halfH;
+        else if (distBottom < CONFIG.snapDistance) snappedLocalY = halfH;
+        else return pos;
 
-        if (distTop < CONFIG.snapDistance) {
-            snappedLocalY = -halfH; // Coller au haut
-        } else if (distBottom < CONFIG.snapDistance) {
-            snappedLocalY = halfH; // Coller au bas
-        } else {
-            return pos; // Trop loin, on ne colle pas
-        }
-
-        // Re-transformer en coordonnées globales
-        // On garde localX inchangé (le crayon suit le mouvement horizontal de la main)
-        // On utilise snappedLocalY
-        const snappedRad = -rad; // On inverse à nouveau (donc rotation originale)
-        
-        // Formule rotation inverse
         const finalX = localX * Math.cos(this.rulerState.rotation * (Math.PI/180)) - snappedLocalY * Math.sin(this.rulerState.rotation * (Math.PI/180)) + rcx;
         const finalY = localX * Math.sin(this.rulerState.rotation * (Math.PI/180)) + snappedLocalY * Math.cos(this.rulerState.rotation * (Math.PI/180)) + rcy;
 
         return { x: finalX, y: finalY };
     }
 
-    /* --- Boucle de rendu --- */
-    
     draw() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-        // 1. Dessiner les lignes validées
         this.lines.forEach(line => {
             this.ctx.beginPath();
             this.ctx.moveTo(line.p1.x, line.p1.y);
             this.ctx.lineTo(line.p2.x, line.p2.y);
-            this.ctx.strokeStyle = line.color || 'black';
-            this.ctx.lineWidth = 4;
+            this.ctx.strokeStyle = line.color === 'black' ? '#333' : line.color;
+            this.ctx.lineWidth = 5;
             this.ctx.lineCap = 'round';
             this.ctx.stroke();
         });
 
-        // 2. Dessiner la ligne en cours
         if (this.currentLine && this.isDrawing) {
             this.ctx.beginPath();
             this.ctx.moveTo(this.currentLine.start.x, this.currentLine.start.y);
             this.ctx.lineTo(this.currentLine.end.x, this.currentLine.end.y);
-            this.ctx.strokeStyle = '#555'; // Gris crayon
+            this.ctx.strokeStyle = '#666';
             this.ctx.lineWidth = 3;
-            this.ctx.setLineDash([5, 5]); // Pointillés pour le brouillon
+            this.ctx.setLineDash([5, 5]);
             this.ctx.stroke();
             this.ctx.setLineDash([]);
         }
 
-        // 3. Dessiner les points
         this.points.forEach(p => {
             this.ctx.beginPath();
             this.ctx.arc(p.x, p.y, CONFIG.pointRadius, 0, Math.PI * 2);
@@ -567,11 +533,10 @@ class Game {
             this.ctx.lineWidth = 2;
             this.ctx.stroke();
 
-            // Surbrillance si c'est le point de départ
             if (this.startPoint === p) {
                 this.ctx.beginPath();
-                this.ctx.arc(p.x, p.y, CONFIG.pointRadius + 5, 0, Math.PI * 2);
-                this.ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                this.ctx.arc(p.x, p.y, CONFIG.pointRadius + 6, 0, Math.PI * 2);
+                this.ctx.strokeStyle = 'rgba(0,0,0,0.2)';
                 this.ctx.stroke();
             }
         });
@@ -583,11 +548,9 @@ class Game {
     }
 }
 
-// Démarrer le jeu au chargement
 window.onload = () => {
     window.game = new Game();
 };
-
 </script>
 </body>
 </html>
