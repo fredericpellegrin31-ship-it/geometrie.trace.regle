@@ -44,13 +44,16 @@
             display: flex;
             align-items: flex-end;
             touch-action: none;
+            transition: background-color 0.3s, opacity 0.3s;
         }
 
+        /* État verrouillé : Très transparent et vert pour laisser voir le tracé */
         #ruler.locked {
             cursor: default;
-            outline: 4px solid #10B981;
-            box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
-            background-color: rgba(255, 204, 102, 0.7);
+            outline: 3px solid #10B981;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+            background-color: rgba(167, 243, 208, 0.2); /* Vert très pâle et transparent */
+            opacity: 0.4;
         }
 
         .graduation-container {
@@ -218,6 +221,16 @@ class Game {
             this.points.push({ x: w * 0.5, y: h * 0.8, color: '#10B981', id: 'v2' });
             this.points.push({ x: w * 0.1, y: h * 0.4, color: '#F59E0B', id: 'o1' });
             this.points.push({ x: w * 0.3, y: h * 0.2, color: '#F59E0B', id: 'o2' });
+        } else if (lvl === 3) {
+            this.setUI("Niveau 3", "Termine le tracé des triangles.");
+            // Triangle 1 (Violet)
+            this.points.push({ x: w * 0.2, y: h * 0.3, color: '#8B5CF6', id: 't1_1' });
+            this.points.push({ x: w * 0.5, y: h * 0.3, color: '#8B5CF6', id: 't1_2' });
+            this.points.push({ x: w * 0.35, y: h * 0.1, color: '#8B5CF6', id: 't1_3' });
+            // Triangle 2 (Rose)
+            this.points.push({ x: w * 0.5, y: h * 0.7, color: '#EC4899', id: 't2_1' });
+            this.points.push({ x: w * 0.8, y: h * 0.7, color: '#EC4899', id: 't2_2' });
+            this.points.push({ x: w * 0.65, y: h * 0.45, color: '#EC4899', id: 't2_3' });
         } else {
             this.setUI("Félicitations !", "Tu as terminé tous les niveaux.");
         }
@@ -297,7 +310,6 @@ class Game {
         this.rulerEl.style.transform = `translate(${this.rulerState.x}px, ${this.rulerState.y}px) rotate(${this.rulerState.rotation}deg)`;
     }
 
-    // Vérifie si une paire de points est déjà reliée
     isAlreadyLinked(p1, p2) {
         return this.lines.some(l => 
             (l.p1.id === p1.id && l.p2.id === p2.id) || 
@@ -311,9 +323,7 @@ class Game {
                 const p1 = this.points[i];
                 const p2 = this.points[j];
                 
-                // NOUVEAU : Si déjà reliés, on ignore cette paire pour le verrouillage
                 if (this.isAlreadyLinked(p1, p2)) continue;
-
                 if (p1.color !== p2.color && this.level !== 1) continue;
 
                 const targetAngle = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
@@ -360,7 +370,7 @@ class Game {
         this.rulerState.y = targetCenterY - (this.rulerState.height / 2);
         
         this.updateRulerUI();
-        this.setUI("Règle fixée !", "Trace le trait le long du bord haut.");
+        this.setUI("Règle fixée !", "Le guide est transparent pour mieux voir ton trait.");
     }
 
     snapToRuler(pos) {
@@ -388,10 +398,14 @@ class Game {
     }
 
     checkWin() {
-        const goal = this.level === 1 ? 1 : 4;
+        let goal = 0;
+        if (this.level === 1) goal = 1;
+        else if (this.level === 2) goal = 4;
+        else if (this.level === 3) goal = 6; // 3 segments par triangle
+
         if (this.lines.length >= goal) {
             document.getElementById('nextLevelBtn').classList.remove('hidden');
-            this.setUI("Bravo !", "Tous les points sont reliés.");
+            this.setUI("Excellent !", "Tu maîtrises parfaitement la règle.");
         }
     }
 
@@ -408,6 +422,7 @@ class Game {
             this.ctx.fillStyle = p.color;
             this.ctx.fill();
             this.ctx.strokeStyle = "white";
+            this.ctx.lineWidth = 2;
             this.ctx.stroke();
         });
 
@@ -417,6 +432,7 @@ class Game {
             this.ctx.lineTo(l.p2.x, l.p2.y);
             this.ctx.strokeStyle = l.color;
             this.ctx.lineWidth = 4;
+            this.ctx.lineCap = "round";
             this.ctx.stroke();
         });
 
@@ -444,5 +460,6 @@ window.onload = () => {
 </script>
 </body>
 </html>
+
 
 
